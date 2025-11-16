@@ -1,0 +1,8 @@
+---
+title: "Regressão Para Dados Binários"
+author: "Proporção de pessoas com baixa renda no RS"
+output: 
+  cleanrmd::html_document_clean:
+    theme: stylize 
+                    
+---
