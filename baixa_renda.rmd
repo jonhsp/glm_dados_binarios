@@ -1,11 +1,18 @@
 ---
-title: "Regressão Para Dados Binários"
-author: "Proporção de pessoas com baixa renda no RS"
+title: "Trabalho 1: Regressão Logística - Proporção de Baixa Renda (RS)"
+subtitle: "CE314 - Modelos Lineares Generalizados (Grupo 4)"
+author: "jonathas Pereira,......"
 output: 
-  cleanrmd::html_document_clean:
-    theme: stylize 
-                    
+  html_document:
+    theme: journal
+    number_sections: true
+    code_folding: 'hide'
 ---
+___ 
+
+
+# Variáveis Pré-Selecionadas
+<br><br>
 
 | Variável | Descrição |
 | :--- | :--- |
@@ -16,36 +23,139 @@ output:
 | `Saneat` | Quantidade de moradores com abastecimento de água (Contagem) |
 | `ObtOcorr` | Óbitos ocorridos no município |
 
-# Análise Exploratória
+# Preparação dos Dados
+<br><br>
 
-```{r imports }
-
+## Leitura
+```{r setup, message=FALSE, warning=FALSE, include=FALSE}
 library(ggplot2)
 library(dplyr)
 library(tidyverse)
-
 ```
 
-```{r leitura}
+```{r leitura, message=FALSE, warning=FALSE}
 url <- "https://gist.githubusercontent.com/jonhsp/5cf24aa66c3fb173fea117bf4cb1dbc7/raw/29b6a4bcb197ab9be16663f8c73edcfd6b3c51f3/MunicipiosRS.xlsx%2520-%2520Quartis_1_e_3.csv"
-br_locale <- locale(decimal_mark = ",", grouping_mark = ".")
-df <- read_csv(url, locale = br_locale)
-head(df)
+df <- read_csv(url)
+
 ```
 
-```{r tratamentos}
+```{r tratamentos, message=FALSE, warning=FALSE}
 df %<>%
           select(-'Prop<025SM') %>%
+          # Isolando o nome do município
           mutate(MUNICIPIO = str_split_i(MUNICIPIO, " ",2)) %>%
           mutate(MUNICIPIO = str_to_lower(MUNICIPIO)) %>%
-          mutate(Y_Bin = factor(PropBaixaRenda, 
+          # Convertendo as colunas para numérico
+          mutate(across(
+          .cols = c(TxAnalfa, TxDesemp, PopRes, ObtOcorr, Saneat),
+          .fns = ~ as.numeric(str_replace_all(., ",", "."))
+            )) %>%
+          # Criando a variável binária como fator
+          mutate(y_bin = factor(PropBaixaRenda, 
                                       levels = c(0, 1), 
                                       labels = c("Baixa Proporção", "Alta Proporção"))) %>%
+          # Removendo a coluna original
+          select(-'PropBaixaRenda') %>%
+          # Renomeando as colunas para minúsculo
           rename_all(str_to_lower)  
 
 summary(df)
 ```
+<br><br>
+
+# Distribuição das Variáveis
+```{r distribuicao, message=FALSE, warning=FALSE}
+df %>%
+  # Seleciona apenas colunas numéricas
+  select(where(is.numeric)) %>%
+  # Pivota os dados para o formato longo (ideal para facet_wrap)
+  pivot_longer(cols = everything(), names_to = "Variavel", values_to = "Valor") %>%
+  
+  ggplot(aes(x = Valor)) +
+  geom_histogram(aes(y = ..density..), bins = 20, fill = "steelblue", color = "white", alpha = 0.8) +
+  geom_density(color = "red", size = 1) +
+  # Cria um mini-gráfico para cada variável
+  facet_wrap(~ Variavel, scales = "free") +
+  labs(
+    title = "Distribuição das Variáveis Preditoras",
+    x = "Valor da Variável",
+    y = "Densidade"
+  ) +
+  theme_light()
+```
+<br><br>
+
+# Transformações
+```{r transformacoes, message=FALSE, warning=FALSE}
+df_transf <- df %>%
+        # log populacao
+        mutate(log_popres = log(popres)) %>% 
+        # Obtos por 100.000 habitantes
+        mutate(obt_100k = obtocorr / popres * 100000) %>%
+        # Saneamento por 100.000 habitantes
+        mutate(saneat_100k = saneat / popres * 100000) %>%
+        # Remoção das variáveis originais
+        select(-c(popres, obtocorr, saneat))
+        
+```
+<br><br>
+
+# Distribuição das Variáveis Transformadas
+
+
+```{r distribuicao_transf, message=FALSE, warning=FALSE}
+df_transf %>%
+  # Seleciona apenas colunas numéricas
+  select(where(is.numeric)) %>%
+  # Pivota os dados para o formato longo (ideal para facet_wrap)
+  pivot_longer(cols = everything(), names_to = "Variavel", values_to = "Valor") %>%
+  
+  ggplot(aes(x = Valor)) +
+  geom_histogram(aes(y = ..density..), bins = 20, fill = "steelblue", color = "white", alpha = 0.8) +
+  geom_density(color = "red", size = 1) +
+  # Cria um mini-gráfico para cada variável
+  facet_wrap(~ Variavel, scales = "free") +
+  labs(
+    title = "Distribuição das Variáveis Transformadas",
+    x = "Valor da Variável",
+    y = "Densidade"
+  ) +
+  theme_light()
+```
+<br><br>
 
 ```{r}
+# Visualização das variáveis numéricas por nível da variável resposta
+
+df_transf %>%
+  # 1. Seleciona numéricas E a variável resposta (y_bin)
+  select(y_bin, where(is.numeric)) %>%
+  
+  # 2. Pivota apenas as numéricas, mantendo o y_bin fixo (cols = -y_bin)
+  pivot_longer(cols = -y_bin, names_to = "Variavel", values_to = "Valor") %>%
+  
+  # 3. Adiciona 'fill = y_bin' para separar as cores por grupo
+  ggplot(aes(x = Valor, fill = y_bin, color = y_bin)) +
+  
+  # position = "identity" permite que os histogramas se sobreponham (transparencia ajuda)
+  geom_histogram(aes(y = ..density..), bins = 20, alpha = 0.4, position = "identity") +
+  
+  # Linha de densidade também separada por cor
+  geom_density(alpha = 0.2, size = 1) +
+  
+  facet_wrap(~ Variavel, scales = "free") +
+  
+  labs(
+    title = "Distribuição das Variáveis por Grupo (Baixa vs Alta Proporção)",
+    x = "Valor da Variável",
+    y = "Densidade",
+    fill = "Grupo",
+    color = "Grupo"
+  ) +
+  theme_light() +
+  # Move a legenda para baixo para dar mais espaço aos gráficos
+  theme(legend.position = "bottom")
+
 
 ```
+<br><br>
