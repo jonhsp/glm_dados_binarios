@@ -6,3 +6,46 @@ output:
     theme: stylize 
                     
 ---
+
+| Variável | Descrição |
+| :--- | :--- |
+| `PropBaixaRenda` | Variável resposta binária (0 ou 1), derivada da "Proporção de pessoas com renda menor de ¼ do salário mínimo". |
+| `TxAnalfa` | Taxa de analfabetismo do município (%) |
+| `TxDesemp` | Taxa de desemprego do município (%) |
+| `PopRes` | População residente do município (Contagem) |
+| `Saneat` | Quantidade de moradores com abastecimento de água (Contagem) |
+| `ObtOcorr` | Óbitos ocorridos no município |
+
+# Análise Exploratória
+
+```{r imports }
+
+library(ggplot2)
+library(dplyr)
+library(tidyverse)
+
+```
+
+```{r leitura}
+url <- "https://gist.githubusercontent.com/jonhsp/5cf24aa66c3fb173fea117bf4cb1dbc7/raw/29b6a4bcb197ab9be16663f8c73edcfd6b3c51f3/MunicipiosRS.xlsx%2520-%2520Quartis_1_e_3.csv"
+br_locale <- locale(decimal_mark = ",", grouping_mark = ".")
+df <- read_csv(url, locale = br_locale)
+head(df)
+```
+
+```{r tratamentos}
+df %<>%
+          select(-'Prop<025SM') %>%
+          mutate(MUNICIPIO = str_split_i(MUNICIPIO, " ",2)) %>%
+          mutate(MUNICIPIO = str_to_lower(MUNICIPIO)) %>%
+          mutate(Y_Bin = factor(PropBaixaRenda, 
+                                      levels = c(0, 1), 
+                                      labels = c("Baixa Proporção", "Alta Proporção"))) %>%
+          rename_all(str_to_lower)  
+
+summary(df)
+```
+
+```{r}
+
+```
