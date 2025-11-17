@@ -27,10 +27,12 @@ ___
 <br><br>
 
 ## Leitura
-```{r setup, message=FALSE, warning=FALSE, include=FALSE}
+```{r, message=FALSE, warning=FALSE, include=FALSE}
 library(ggplot2)
 library(dplyr)
 library(tidyverse)
+library(magrittr)
+library(stringr)
 ```
 
 ```{r leitura, message=FALSE, warning=FALSE}
@@ -40,24 +42,31 @@ df <- read_csv(url)
 ```
 
 ```{r tratamentos, message=FALSE, warning=FALSE}
+
 df %<>%
-          select(-'Prop<025SM') %>%
-          # Isolando o nome do município
-          mutate(MUNICIPIO = str_split_i(MUNICIPIO, " ",2)) %>%
-          mutate(MUNICIPIO = str_to_lower(MUNICIPIO)) %>%
-          # Convertendo as colunas para numérico
-          mutate(across(
-          .cols = c(TxAnalfa, TxDesemp, PopRes, ObtOcorr, Saneat),
-          .fns = ~ as.numeric(str_replace_all(., ",", "."))
-            )) %>%
-          # Criando a variável binária como fator
-          mutate(y_bin = factor(PropBaixaRenda, 
-                                      levels = c(0, 1), 
-                                      labels = c("Baixa Proporção", "Alta Proporção"))) %>%
-          # Removendo a coluna original
-          select(-'PropBaixaRenda') %>%
-          # Renomeando as colunas para minúsculo
-          rename_all(str_to_lower)  
+  select(-'Prop<025SM') %>%
+  # Isolando o nome do municipio (remove codigo e espaco inicial)
+  mutate(MUNICIPIO = str_remove(MUNICIPIO, "^\\d+\\s")) %>%
+  mutate(MUNICIPIO = str_to_lower(MUNICIPIO)) %>%
+  # Tratando hifen como zero e convertendo para numerico
+  mutate(across(
+    .cols = c(TxAnalfa, TxDesemp, PopRes, ObtOcorr, Saneat),
+    .fns = ~ {
+      .x %>%
+        str_replace("^-$", "0") %>%
+        str_replace_all("\\.", "") %>%
+        str_replace_all(",", ".") %>%
+        as.numeric()
+    }
+  )) %>%
+  # Criando a variável binária como fator
+  mutate(y_bin = factor(PropBaixaRenda, 
+                        levels = c(0, 1), 
+                        labels = c("Baixa Proporção", "Alta Proporção"))) %>%
+  # Renomeando as colunas para minúsculo
+  rename_all(str_to_lower) %>%
+  # Selecionando variaveis
+  select(municipio, y_bin, txanalfa, txdesemp, popres, obtocorr, saneat) 
 
 summary(df)
 ```
@@ -88,6 +97,10 @@ df %>%
 # Transformações
 ```{r transformacoes, message=FALSE, warning=FALSE}
 df_transf <- df %>%
+        # Remove municípios com população zero (evita log(0) = -Inf)
+        filter(popres > 0) %>%
+        # Remoção de NAs
+        drop_na() %>%
         # log populacao
         mutate(log_popres = log(popres)) %>% 
         # Obtos por 100.000 habitantes
@@ -124,7 +137,7 @@ df_transf %>%
 ```
 <br><br>
 
-```{r}
+```{r, message=FALSE, warning=FALSE}
 # Visualização das variáveis numéricas por nível da variável resposta
 
 df_transf %>%
@@ -159,3 +172,221 @@ df_transf %>%
 
 ```
 <br><br>
+
+```{r, message=FALSE, warning=FALSE}
+# Visualização das variáveis numéricas por nível da variável resposta (Boxplot)
+
+df_transf %>%
+  # 1. Seleciona numéricas E a variável resposta (y_bin)
+  select(y_bin, where(is.numeric)) %>%
+  
+  # 2. Pivota apenas as numéricas, mantendo o y_bin fixo
+  pivot_longer(cols = -y_bin, names_to = "Variavel", values_to = "Valor") %>%
+  
+  # 3. MUDANÇA: Eixo X é o Grupo (y_bin), Eixo Y é o Valor numérico
+  ggplot(aes(x = y_bin, y = Valor, fill = y_bin)) +
+  
+  # Geometria de Boxplot
+  geom_boxplot(alpha = 0.7, outlier.colour = "red", outlier.shape = 1) +
+  
+  # Escalas livres no eixo Y para acomodar magnitudes diferentes
+  facet_wrap(~ Variavel, scales = "free_y") +
+  
+  labs(
+    title = "Boxplots das Variáveis por Grupo",
+    x = "Grupo",
+    y = "Valor da Variável",
+    fill = "Grupo"
+  ) +
+  theme_light() +
+  theme(legend.position = "bottom")
+```
+<br><br>
+
+
+```{r, message=FALSE, warning=FALSE}
+# Visualização das variáveis numéricas por nível da variável resposta (Boxplot)
+
+df_transf %>%
+  # 1. Seleciona numéricas E a variável resposta (y_bin)
+  select(y_bin, where(is.numeric)) %>%
+  
+  # 2. Pivota apenas as numéricas, mantendo o y_bin fixo
+  pivot_longer(cols = -y_bin, names_to = "Variavel", values_to = "Valor") %>%
+  
+  # 3. MUDANÇA: Eixo X é o Grupo (y_bin), Eixo Y é o Valor numérico
+  ggplot(aes(x = y_bin, y = Valor, fill = y_bin)) +
+  
+  # Geometria de Boxplot
+  geom_violin(alpha = 0.7, outlier.colour = "red", outlier.shape = 1) +
+  
+  # Escalas livres no eixo Y para acomodar magnitudes diferentes
+  facet_wrap(~ Variavel, scales = "free_y") +
+  
+  labs(
+    title = "Boxplots das Variáveis por Grupo",
+    x = "Grupo",
+    y = "Valor da Variável",
+    fill = "Grupo"
+  ) +
+  theme_light() +
+  theme(legend.position = "bottom")
+```
+<br><br>
+
+```{r, message=FALSE, warning=FALSE}
+# Gráfico de Dispersão: Analfabetismo vs Desemprego por Grupo
+
+df_transf %>%
+  ggplot(aes(x = txanalfa, y = txdesemp, color = y_bin)) +
+  
+  # Adiciona os pontos (dispersão)
+  geom_point(alpha = 0.6, size = 2) +
+  
+  labs(
+    title = "Relação entre Analfabetismo e Desemprego",
+    subtitle = "Segmentado pela Proporção de Baixa Renda (Y)",
+    x = "Taxa de Analfabetismo (%)",
+    y = "Taxa de Desemprego (%)",
+    color = "Situação (Y)"
+  ) +
+  
+  theme_light() +
+  theme(legend.position = "bottom")
+```
+<br><br>
+
+# 4. Ajustes de Modelos
+
+Estamos construindo os modelos progressivamente. O objetivo é encontrar o equilíbrio entre simplicidade e capacidade explicativa.
+
+## Modelo 1 - Todas as variáveis (Linear)
+
+Este é o modelo base (saturado), assumindo que todas as relações são lineares.
+
+```{r mod1, message=FALSE, warning=FALSE}
+# Ajuste do modelo apenas com efeitos principais lineares
+ajuste_1 <- glm(y_bin ~ txanalfa + txdesemp + log_popres + saneat_100k + obt_100k, 
+                data = df_transf, 
+                family = binomial(link = "logit"))
+
+# Sumário para ver coeficientes e significância individual
+summary(ajuste_1)
+
+# Análise de Deviance (ANOVA) para ver a contribuição de cada variável ao ser adicionada
+# O teste "Chisq" é o adequado para GLMs binomiais
+anova(ajuste_1, test = "Chisq")
+```
+
+### Diagnóstico do Modelo 1 (Efeitos Lineares)
+
+A análise do modelo inicial (apenas efeitos principais lineares) revela os seguintes pontos:
+
+1.  **Qualidade do Ajuste:**
+    * **AIC:** 101.62 (Base de comparação).
+    * **Deviance Residual:** Reduziu de 343.80 (Nulo) para 89.62, indicando que o conjunto de variáveis explica uma grande parcela da variabilidade dos dados.
+
+2.  **Significância dos Preditores:**
+    * **`txanalfa` (Analfabetismo):** Altamente significativa ($p < 0.001$). O coeficiente positivo ($1.31$) confirma que quanto maior o analfabetismo, maior a chance de o município pertencer ao grupo de alta pobreza.
+    * **`txdesemp` (Desemprego):** Significativa ($p = 0.003$). Coeficiente positivo ($0.73$), indicando que o desemprego também impulsiona a pobreza.
+    * **`log_popres` (População):** Não significativa ($p = 0.45$). Isso sugere que, em uma relação puramente linear, o tamanho do município não distingue bem os grupos de renda. Isso reforça a necessidade de testar termos quadráticos.
+    * **`saneat_100k` e `obt_100k`:** Não apresentaram significância estatística neste modelo ($p > 0.05$).
+
+**Conclusão:** O modelo captura bem os efeitos de educação e trabalho, mas falha em capturar a influência da demografia (população) e infraestrutura (saneamento) em sua forma linear.
+
+## Modelo 2 - Termos Quadráticos (Não-Linearidade)
+
+Com base na análise exploratória, adicionamos termos quadráticos para **População** e **Desemprego**, mantendo as demais variáveis lineares. O objetivo é testar se a relação com a pobreza é curvilínea.
+
+```{r mod2, message=FALSE, warning=FALSE}
+# Ajuste do modelo com polinômios de 2º grau para as variáveis identificadas
+ajuste_2 <- glm(y_bin ~ txanalfa + saneat_100k + obt_100k +
+                poly(txdesemp, 2) + 
+                poly(log_popres, 2),
+                data = df_transf, 
+                family = binomial(link = "logit"))
+
+# Sumário para verificar a significância dos termos quadráticos
+summary(ajuste_2)
+
+# Teste de Deviance (ANOVA) para comparar se o Modelo 2 é superior ao Modelo 1
+# H0: Os modelos são iguais (a complexidade extra não ajuda)
+# H1: O Modelo 2 é melhor
+anova(ajuste_1, ajuste_2, test = "Chisq")
+```
+
+### Diagnóstico do Modelo 2 (Termos Quadráticos)
+
+Os resultados obtidos a partir do ajuste do modelo com termos quadráticos indicam uma superioridade clara sobre o modelo linear simples (Modelo 1). A análise detalhada segue abaixo:
+
+1.  **Teste de Razão de Verossimilhança (ANOVA):**
+    A comparação formal entre os modelos resultou em um **p-valor de 0.0106** (Chi-quadrado). Como $p < 0.05$, rejeitamos a hipótese nula de que os modelos são equivalentes. Isso prova estatisticamente que a inclusão da curvatura para Desemprego e População adicionou poder explicativo real ao modelo, e não apenas ruído.
+
+2.  **Critério de Akaike (AIC):**
+    O AIC reduziu de **101.62** (Modelo 1) para **96.53** (Modelo 2). Uma queda dessa magnitude confirma que o Modelo 2 é mais eficiente: ele explica melhor os dados mesmo sendo penalizado pela complexidade adicional dos termos quadráticos.
+
+3.  **Análise dos Coeficientes:**
+    * **Não-Linearidade Confirmada:** Os termos quadráticos para Desemprego (`poly(txdesemp, 2)2`, p=0.027) e População (`poly(log_popres, 2)2`, p=0.027) foram estatisticamente significativos. Isso sugere que a relação dessas variáveis com a pobreza não é constante, variando conforme a magnitude dos indicadores (formato de curva).
+    * **Preditores Fortes:** A Taxa de Analfabetismo (`txanalfa`) permanece como o preditor mais robusto do modelo ($p < 0.001$), mantendo seu efeito positivo forte.
+    * **Variáveis Redundantes:** A variável de Saneamento (`saneat_100k`) apresentou p-valor alto (0.73), sugerindo que, na presença das outras variáveis (especialmente Analfabetismo), ela não adiciona informação nova relevante para a classificação.
+    * **Óbitos:** Curiosamente, a taxa de óbitos (`obt_100k`) tornou-se significativa ($p=0.04$) neste modelo ajustado.
+
+**Conclusão:** O Modelo 2 será adotado como base para a seleção final. O próximo passo será refinar este modelo aplicando o método *Stepwise* para remover automaticamente os preditores não significativos (como o Saneamento) e obter o modelo final parcimonioso.
+
+# 5. Seleção do Modelo Final e Diagnóstico
+
+Nesta etapa, refinamos o modelo quadrático removendo variáveis redundantes pelo critério de Akaike (AIC) e realizamos os diagnósticos de qualidade do ajuste.
+
+## 5.1 Seleção de Variáveis (Stepwise)
+
+Utilizamos o método *stepwise* (direção "both") para remover preditores não significativos e chegar ao modelo mais parcimonioso possível.
+
+```{r step, message=FALSE, warning=FALSE}
+# Aplica o algoritmo Stepwise no Modelo 2 (Quadrático)
+# O R testará remover/adicionar variáveis para baixar o AIC
+modelo_final <- step(ajuste_2, direction = "both", trace = 1)
+
+# Exibe o resumo do modelo vencedor
+summary(modelo_final)
+```
+
+# 5.3 Interpretação dos Efeitos (Odds Ratios)
+A tabela abaixo apresenta a Razão de Chances (Odds Ratios) para as variáveis do modelo final.
+
+```{r or, message=FALSE, warning=FALSE}
+# Extração dos coeficientes e cálculo do OR (exp(beta))
+tabela_or <- exp(cbind(OR = coef(modelo_final), confint(modelo_final)))
+
+# Exibição formatada
+knitr::kable(tabela_or, digits = 3, caption = "Razão de Chances (Odds Ratios) e IC 95%")
+```
+
+### Interpretação dos Coeficientes do Modelo Final
+
+A tabela de coeficientes do modelo selecionado (`modelo_final`) revela as seguintes relações estatísticas com a probabilidade de um município apresentar alta proporção de baixa renda:
+
+**1. Taxa de Analfabetismo (`txanalfa`)**
+* **Estimativa:** $1.33$
+* **Significância:** $p < 0.001$ (***)
+* **Interpretação:** É o preditor mais forte e consistente do modelo. O coeficiente positivo indica uma relação direta: quanto maior a taxa de analfabetismo, **maior** a probabilidade do município pertencer ao grupo de alta pobreza.
+
+**2. Taxa de Desemprego (`poly(txdesemp, 2)`)**
+* **Termo Linear:** $49.54$ ($p = 0.003$ **)
+* **Termo Quadrático:** $37.31$ ($p = 0.026$ *)
+* **Interpretação:** A significância de ambos os termos confirma que a relação entre desemprego e pobreza **não é linear**. O fato de ambos os coeficientes serem positivos sugere um efeito acelerado: o impacto do desemprego na pobreza torna-se mais severo à medida que as taxas de desemprego aumentam.
+
+**3. Tamanho da População (`poly(log_popres, 2)`)**
+* **Termo Linear:** $1.50$ ($p = 0.856$, não significativo)
+* **Termo Quadrático:** $-20.83$ ($p = 0.025$ *)
+* **Interpretação:** Apenas o termo quadrático é significativo e possui sinal negativo. Isso indica uma relação curvilínea (formato de "U invertido" no espaço das chances). Isso sugere que a dinâmica da pobreza varia conforme a escala do município, comportando-se de maneira diferente em municípios de porte médio comparado aos extremos (muito pequenos ou muito grandes).
+
+**4. Taxa de Óbitos (`obt_100k`)**
+* **Estimativa:** $-0.003$
+* **Significância:** $p = 0.042$ (*)
+* **Interpretação:** Apresenta uma associação negativa (fator de "proteção") estatisticamente significativa, embora de magnitude marginal. Isso sugere que, mantidas constantes as outras variáveis, municípios com maiores taxas de óbitos por causas externas (frequentemente associadas a maior urbanização e tráfego) têm uma probabilidade ligeiramente menor de estarem no grupo de pobreza extrema.
+
+---
+
+### Qualidade do Ajuste
+* **Redução da Deviance:** O modelo reduziu a Deviance Nula de **343.80** para uma Deviance Residual de **80.64**, indicando que os preditores selecionados explicam uma parcela substancial da variabilidade dos dados.
+* **AIC:** O valor final de **94.65** representa o melhor compromisso encontrado entre ajuste e complexidade.
