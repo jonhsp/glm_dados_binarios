@@ -27,12 +27,17 @@ ___
 <br><br>
 
 ## Leitura
-```{r, message=FALSE, warning=FALSE, include=FALSE}
+```{r setup, message=FALSE, warning=FALSE, include=FALSE}
 library(ggplot2)
 library(dplyr)
 library(tidyverse)
 library(magrittr)
 library(stringr)
+library(ggeffects)
+library(gridExtra)
+library(car)
+library(hnp)
+library(plotly)
 ```
 
 ```{r leitura, message=FALSE, warning=FALSE}
@@ -100,7 +105,7 @@ df_transf <- df %>%
         # Remove municípios com população zero (evita log(0) = -Inf)
         filter(popres > 0) %>%
         # Remoção de NAs
-        drop_na() %>%
+        #drop_na() %>%
         # log populacao
         mutate(log_popres = log(popres)) %>% 
         # Obtos por 100.000 habitantes
@@ -115,7 +120,7 @@ df_transf <- df %>%
 
 # Distribuição das Variáveis Transformadas
 
-
+## Visualização individual
 ```{r distribuicao_transf, message=FALSE, warning=FALSE}
 df_transf %>%
   # Seleciona apenas colunas numéricas
@@ -137,7 +142,8 @@ df_transf %>%
 ```
 <br><br>
 
-```{r, message=FALSE, warning=FALSE}
+## Visualização por grupo (Baixa vs Alta Proporção)
+```{r distribuicao_transf_por_grupo, message=FALSE, warning=FALSE}
 # Visualização das variáveis numéricas por nível da variável resposta
 
 df_transf %>%
@@ -173,7 +179,7 @@ df_transf %>%
 ```
 <br><br>
 
-```{r, message=FALSE, warning=FALSE}
+```{r distribuicao_transf_por_grupo_boxplot, message=FALSE, warning=FALSE}
 # Visualização das variáveis numéricas por nível da variável resposta (Boxplot)
 
 df_transf %>%
@@ -203,38 +209,8 @@ df_transf %>%
 ```
 <br><br>
 
-
-```{r, message=FALSE, warning=FALSE}
-# Visualização das variáveis numéricas por nível da variável resposta (Boxplot)
-
-df_transf %>%
-  # 1. Seleciona numéricas E a variável resposta (y_bin)
-  select(y_bin, where(is.numeric)) %>%
-  
-  # 2. Pivota apenas as numéricas, mantendo o y_bin fixo
-  pivot_longer(cols = -y_bin, names_to = "Variavel", values_to = "Valor") %>%
-  
-  # 3. MUDANÇA: Eixo X é o Grupo (y_bin), Eixo Y é o Valor numérico
-  ggplot(aes(x = y_bin, y = Valor, fill = y_bin)) +
-  
-  # Geometria de Boxplot
-  geom_violin(alpha = 0.7, outlier.colour = "red", outlier.shape = 1) +
-  
-  # Escalas livres no eixo Y para acomodar magnitudes diferentes
-  facet_wrap(~ Variavel, scales = "free_y") +
-  
-  labs(
-    title = "Boxplots das Variáveis por Grupo",
-    x = "Grupo",
-    y = "Valor da Variável",
-    fill = "Grupo"
-  ) +
-  theme_light() +
-  theme(legend.position = "bottom")
-```
-<br><br>
-
-```{r, message=FALSE, warning=FALSE}
+## Relação entre Analfabetismo e Desemprego
+```{r relacao_txanalfa_txdesemp, message=FALSE, warning=FALSE}
 # Gráfico de Dispersão: Analfabetismo vs Desemprego por Grupo
 
 df_transf %>%
@@ -256,11 +232,11 @@ df_transf %>%
 ```
 <br><br>
 
-# 4. Ajustes de Modelos
+# Ajustes de Modelos
 
 Estamos construindo os modelos progressivamente. O objetivo é encontrar o equilíbrio entre simplicidade e capacidade explicativa.
 
-## Modelo 1 - Todas as variáveis (Linear)
+## Modelo 1 - Todas as variáveis 
 
 Este é o modelo base (saturado), assumindo que todas as relações são lineares.
 
@@ -278,7 +254,7 @@ summary(ajuste_1)
 anova(ajuste_1, test = "Chisq")
 ```
 
-### Diagnóstico do Modelo 1 (Efeitos Lineares)
+### Diagnóstico do Modelo 1
 
 A análise do modelo inicial (apenas efeitos principais lineares) revela os seguintes pontos:
 
@@ -333,24 +309,40 @@ Os resultados obtidos a partir do ajuste do modelo com termos quadráticos indic
 
 **Conclusão:** O Modelo 2 será adotado como base para a seleção final. O próximo passo será refinar este modelo aplicando o método *Stepwise* para remover automaticamente os preditores não significativos (como o Saneamento) e obter o modelo final parcimonioso.
 
-# 5. Seleção do Modelo Final e Diagnóstico
+# Seleção do Modelo Final e Diagnóstico
 
 Nesta etapa, refinamos o modelo quadrático removendo variáveis redundantes pelo critério de Akaike (AIC) e realizamos os diagnósticos de qualidade do ajuste.
 
-## 5.1 Seleção de Variáveis (Stepwise)
+## Seleção de Variáveis (Stepwise)
 
 Utilizamos o método *stepwise* (direção "both") para remover preditores não significativos e chegar ao modelo mais parcimonioso possível.
+
 
 ```{r step, message=FALSE, warning=FALSE}
 # Aplica o algoritmo Stepwise no Modelo 2 (Quadrático)
 # O R testará remover/adicionar variáveis para baixar o AIC
-modelo_final <- step(ajuste_2, direction = "both", trace = 1)
+modelo_step <- step(ajuste_2, direction = "both", trace = 1)
 
 # Exibe o resumo do modelo vencedor
-summary(modelo_final)
+summary(modelo_step)
 ```
 
-# 5.3 Interpretação dos Efeitos (Odds Ratios)
+O modelo capta a não linearidade de log populção, porém também acrescenta a taxa de obtos ao nível de 5% de significancia, porém a mesma não seria incluida ao nível de 1% de significancia.
+Visando a simplicidade do modelo, a taxa de obtos será removida
+
+```{r modelo_final, message=FALSE, warning=FALSE}
+
+modelo_final <- update(modelo_step, . ~ . - obt_100k)
+
+# Exibe o resumo do modelo vencedor
+cat("----Summary do Modelo Final----")
+summary(modelo_final)
+cat("----Anova entre os Modelos----")
+anova(modelo_final,modelo_step, ajuste_2, test = "Chisq")
+```
+
+
+## Interpretação dos Efeitos (Odds Ratios)
 A tabela abaixo apresenta a Razão de Chances (Odds Ratios) para as variáveis do modelo final.
 
 ```{r or, message=FALSE, warning=FALSE}
@@ -360,33 +352,310 @@ tabela_or <- exp(cbind(OR = coef(modelo_final), confint(modelo_final)))
 # Exibição formatada
 knitr::kable(tabela_or, digits = 3, caption = "Razão de Chances (Odds Ratios) e IC 95%")
 ```
+# Visualizações
 
-### Interpretação dos Coeficientes do Modelo Final
+## Visualização ( Variáveis fixadas na média)
 
-A tabela de coeficientes do modelo selecionado (`modelo_final`) revela as seguintes relações estatísticas com a probabilidade de um município apresentar alta proporção de baixa renda:
+```{r visualizacao_modelo_final_media, message=FALSE, warning=FALSE}
 
-**1. Taxa de Analfabetismo (`txanalfa`)**
-* **Estimativa:** $1.33$
-* **Significância:** $p < 0.001$ (***)
-* **Interpretação:** É o preditor mais forte e consistente do modelo. O coeficiente positivo indica uma relação direta: quanto maior a taxa de analfabetismo, **maior** a probabilidade do município pertencer ao grupo de alta pobreza.
+# 1. Efeito do Analfabetismo (Linear)
+# Mostra a probabilidade predita de Alta Pobreza conforme a Taxa de Analfabetismo aumenta
+plot_analfa <- ggpredict(modelo_final, terms = "txanalfa") %>%
+  plot() +
+  labs(
+    title = "Efeito do Analfabetismo",
+    x = "Taxa de Analfabetismo (%)", 
+    y = "Probabilidade de Alta Pobreza"
+  ) +
+  theme_light()
 
-**2. Taxa de Desemprego (`poly(txdesemp, 2)`)**
-* **Termo Linear:** $49.54$ ($p = 0.003$ **)
-* **Termo Quadrático:** $37.31$ ($p = 0.026$ *)
-* **Interpretação:** A significância de ambos os termos confirma que a relação entre desemprego e pobreza **não é linear**. O fato de ambos os coeficientes serem positivos sugere um efeito acelerado: o impacto do desemprego na pobreza torna-se mais severo à medida que as taxas de desemprego aumentam.
+# 2. Efeito do Desemprego (Quadrático)
+# Mostra a curva não-linear capturada pelo polinômio
+plot_desemp <- ggpredict(modelo_final, terms = "txdesemp [all]") %>%
+  plot() +
+  labs(
+    title = "Efeito do Desemprego (Não-linear)",
+    x = "Taxa de Desemprego (%)", 
+    y = "Probabilidade de Alta Pobreza"
+  ) +
+  theme_light()
 
-**3. Tamanho da População (`poly(log_popres, 2)`)**
-* **Termo Linear:** $1.50$ ($p = 0.856$, não significativo)
-* **Termo Quadrático:** $-20.83$ ($p = 0.025$ *)
-* **Interpretação:** Apenas o termo quadrático é significativo e possui sinal negativo. Isso indica uma relação curvilínea (formato de "U invertido" no espaço das chances). Isso sugere que a dinâmica da pobreza varia conforme a escala do município, comportando-se de maneira diferente em municípios de porte médio comparado aos extremos (muito pequenos ou muito grandes).
+# 3. Efeito da População (Quadrático)
+# Plota a curvatura ajustada para o Log da População
+plot_pop <- ggpredict(modelo_final, terms = "log_popres [all]") %>%
+  plot() +
+  labs(
+    title = "Efeito do Tamanho da População",
+    x = "Log(População)", 
+    y = "Probabilidade de Alta Pobreza"
+  ) +
+  theme_light()
 
-**4. Taxa de Óbitos (`obt_100k`)**
-* **Estimativa:** $-0.003$
-* **Significância:** $p = 0.042$ (*)
-* **Interpretação:** Apresenta uma associação negativa (fator de "proteção") estatisticamente significativa, embora de magnitude marginal. Isso sugere que, mantidas constantes as outras variáveis, municípios com maiores taxas de óbitos por causas externas (frequentemente associadas a maior urbanização e tráfego) têm uma probabilidade ligeiramente menor de estarem no grupo de pobreza extrema.
+# Exibir os gráficos juntos usando gridExtra
+# Organiza em 2 colunas: Analfabetismo e Desemprego na linha 1, População centralizada na linha 2
+grid.arrange(plot_analfa, plot_desemp, plot_pop, ncol = 3, 
+             layout_matrix = rbind(c(1, 2), c(3, 3)))
 
----
 
-### Qualidade do Ajuste
-* **Redução da Deviance:** O modelo reduziu a Deviance Nula de **343.80** para uma Deviance Residual de **80.64**, indicando que os preditores selecionados explicam uma parcela substancial da variabilidade dos dados.
-* **AIC:** O valor final de **94.65** representa o melhor compromisso encontrado entre ajuste e complexidade.
+
+```
+
+
+## Visualização ( Variáveis fixadas na moda)
+
+```{r visualizacao_modelo_final_moda, message=FALSE, warning=FALSE}
+
+# 1. Efeito do Analfabetismo (Linear)
+# Mostra a probabilidade predita de Alta Pobreza conforme a Taxa de Analfabetismo aumenta
+plot_analfa <- ggpredict(modelo_final, terms = "txanalfa", typical = 'mode') %>%
+  plot() +
+  labs(
+    title = "Efeito do Analfabetismo",
+    x = "Taxa de Analfabetismo (%)", 
+    y = "Probabilidade de Alta Pobreza"
+  ) +
+  theme_light()
+
+# 2. Efeito do Desemprego (Quadrático)
+# Mostra a curva não-linear capturada pelo polinômio
+plot_desemp <- ggpredict(modelo_final, terms = "txdesemp [all]", typical = 'mode') %>%
+  plot() +
+  labs(
+    title = "Efeito do Desemprego (Não-linear)",
+    x = "Taxa de Desemprego (%)", 
+    y = "Probabilidade de Alta Pobreza"
+  ) +
+  theme_light()
+
+# 3. Efeito da População (Quadrático)
+# Plota a curvatura ajustada para o Log da População
+plot_pop <- ggpredict(modelo_final, terms = "log_popres [all]", typical = 'mode') %>%
+  plot() +
+  labs(
+    title = "Efeito do Tamanho da População",
+    x = "Log(População)", 
+    y = "Probabilidade de Alta Pobreza"
+  ) +
+  theme_light()
+
+# Exibir os gráficos juntos usando gridExtra
+# Organiza em 2 colunas: Analfabetismo e Desemprego na linha 1, População centralizada na linha 2
+grid.arrange(plot_analfa, plot_desemp, plot_pop, ncol = 3, 
+             layout_matrix = rbind(c(1, 2), c(3, 3)))
+
+
+
+```
+
+## Visualização 3D das Probabilidades
+```{r visualizacao_3d, message=FALSE, warning=FALSE}
+
+# 1. Preparar os dados com as predições
+# Usamos os dados reais para ver onde os municípios se posicionam no espaço 3D
+df_3d <- df_transf %>%
+  mutate(
+    prob_predita = predict(modelo_final, type = "response"),
+    # Criamos um texto formatado para quando passar o mouse
+    hover_text = paste(
+      "<b>Município:</b>", municipio,
+      "<br><b>Analfabetismo:</b>", txanalfa, "%",
+      "<br><b>Desemprego:</b>", txdesemp, "%",
+      "<br><b>População:</b>", exp(log_popres) %>% round(0), # Revertendo o log para ler fácil
+      "<br><b>Prob. Alta Pobreza:</b>", scales::percent(prob_predita, accuracy = 0.1)
+    )
+  )
+
+# 2. Gerar o Gráfico de Dispersão 3D
+plot_ly(data = df_3d, 
+        x = ~txanalfa, 
+        y = ~txdesemp, 
+        z = ~log_popres,
+        color = ~prob_predita, 
+        colors = c("#440154", "#21908C", "#FDE725"), # Escala Viridis (escura -> clara)
+        type = "scatter3d", 
+        mode = "markers",
+        marker = list(
+          size = 6,              # Tamanho das bolinhas
+          opacity = 0.8,         # Transparência para ver pontos atrás
+          line = list(width = 0) # Remove borda para ficar mais limpo
+        ),
+        text = ~hover_text,
+        hoverinfo = "text"
+) %>%
+  layout(
+    title = "Espaço Tridimensional dos Preditores<br><sub>Cor = Probabilidade de Alta Pobreza</sub>",
+    scene = list(
+      xaxis = list(title = "Analfabetismo (%)"),
+      yaxis = list(title = "Desemprego (%)"),
+      zaxis = list(title = "Log(População)"),
+      camera = list(eye = list(x = 1.5, y = 1.5, z = 1.2)) # Posição inicial da câmera
+    )
+  )
+
+```
+
+## Visualização 3D de Acertos e Erros
+
+```{r visualizacao_3d_acertos_erro, message=FALSE, warning=FALSE}
+
+# 1. Preparar os dados de classificação
+df_classificacao <- df_transf %>%
+  mutate(
+    # Probabilidade predita pelo modelo
+    prob = predict(modelo_final, type = "response"),
+    
+    # Classificação baseada no limiar de 50% (0.5)
+    # Se prob > 0.5 -> Classifica como "Alta Proporção" (nível 2 do fator)
+    # Se prob <= 0.5 -> Classifica como "Baixa Proporção" (nível 1 do fator)
+    classe_predita = ifelse(prob > 0.5, "Alta Proporção", "Baixa Proporção"),
+    
+    # Verificar se acertou ou errou
+    # Como y_bin é fator, convertemos para caracter para comparar
+    resultado = ifelse(as.character(y_bin) == classe_predita, "Acerto", "Erro"),
+    
+    # Detalhe do erro (Falso Positivo vs Falso Negativo) para o tooltip
+    tipo_erro = case_when(
+      resultado == "Acerto" ~ "Classificação Correta",
+      classe_predita == "Alta Proporção" ~ "Falso Positivo (Predisse Alta, mas é Baixa)",
+      TRUE ~ "Falso Negativo (Predisse Baixa, mas é Alta)"
+    ),
+    
+    # Texto para o mouse
+    hover_text = paste(
+      "<b>Município:</b>", municipio,
+      "<br><b>Analfabetismo:</b>", txanalfa, "%",
+      "<br><b>Desemprego:</b>", txdesemp, "%",
+      "<br><b>População:</b>", exp(log_popres) %>% round(0), # Revertendo o log para ler fácil
+      "<br><b>Prob. Alta Pobreza:</b>", scales::percent(prob, accuracy = 0.1)
+    )
+  )
+
+# 2. Gerar o Gráfico 3D
+plot_ly(data = df_classificacao, 
+        x = ~txanalfa, 
+        y = ~txdesemp, 
+        z = ~log_popres,
+        color = ~resultado, 
+        colors = c("#1f77b4", "#d62728"), # Azul para Acerto, Vermelho para Erro
+        symbol = ~resultado,
+        symbols = c("circle", "circle"), # Bolinha para Acerto, X para Erro
+        type = "scatter3d", 
+        mode = "markers",
+        marker = list(
+          size = 6,
+          opacity = 0.8,
+          line = list(width = 1, color = "black") # Borda para destacar
+        ),
+        text = ~hover_text,
+        hoverinfo = "text"
+) %>%
+  layout(
+    title = "Diagnóstico de Classificação 3D<br><sub>Pontos vermelhos indicam onde o modelo errou</sub>",
+    scene = list(
+      xaxis = list(title = "Analfabetismo (%)"),
+      yaxis = list(title = "Desemprego (%)"),
+      zaxis = list(title = "Log(População)")
+    ),
+    legend = list(title = list(text = "Resultado"))
+  )
+
+
+```
+
+## Visualização da probabilidade conjunta 
+
+```{r visualizacao_probabilidade_conjunta, message=FALSE, warning=FALSE, fig.width=15, fig.height=6}
+# Definindo as medianas para fixar as variáveis de controle
+med_analfa <- median(df_transf$txanalfa)
+med_desemp <- median(df_transf$txdesemp)
+med_pop    <- median(df_transf$log_popres)
+
+# ----------------------------------------------------------------------------
+# GRÁFICO 1: Analfabetismo vs Desemprego (Fixando População)
+# ----------------------------------------------------------------------------
+grid1 <- expand.grid(
+  txanalfa = seq(min(df_transf$txanalfa), max(df_transf$txanalfa), length.out = 50),
+  txdesemp = seq(min(df_transf$txdesemp), max(df_transf$txdesemp), length.out = 50),
+  log_popres = med_pop
+)
+grid1$prob <- predict(modelo_final, newdata = grid1, type = "response")
+
+p1 <- ggplot(grid1, aes(x = txanalfa, y = txdesemp)) +
+  geom_tile(aes(fill = prob)) +
+  geom_contour(aes(z = prob), color = "white", breaks = 0.5, size=0.8) +
+  geom_point(data = df_transf, aes(color = y_bin), alpha = 0.3, size = 1.5) + # Pontos reais
+  scale_fill_gradient2(low = "#2c7bb6", mid = "#ffffbf", high = "#d7191c", midpoint = 0.5, limits=c(0,1)) +
+  scale_color_manual(values = c("black", "darkred")) +
+  labs(title = "Analfabetismo vs Desemprego", subtitle = "População fixa na mediana") +
+  theme_minimal() + theme(legend.position = "none")
+
+# ----------------------------------------------------------------------------
+# GRÁFICO 2: Analfabetismo vs Log(População) (Fixando Desemprego)
+# ----------------------------------------------------------------------------
+grid2 <- expand.grid(
+  txanalfa = seq(min(df_transf$txanalfa), max(df_transf$txanalfa), length.out = 50),
+  log_popres = seq(min(df_transf$log_popres), max(df_transf$log_popres), length.out = 50),
+  txdesemp = med_desemp
+)
+grid2$prob <- predict(modelo_final, newdata = grid2, type = "response")
+
+p2 <- ggplot(grid2, aes(x = txanalfa, y = log_popres)) +
+  geom_tile(aes(fill = prob)) +
+  geom_contour(aes(z = prob), color = "white", breaks = 0.5, size=0.8) +
+  geom_point(data = df_transf, aes(color = y_bin), alpha = 0.3, size = 1.5) +
+  scale_fill_gradient2(low = "#2c7bb6", mid = "#ffffbf", high = "#d7191c", midpoint = 0.5, limits=c(0,1)) +
+  scale_color_manual(values = c("black", "darkred")) +
+  labs(title = "Analfabetismo vs População", subtitle = "Desemprego fixo na mediana") +
+  theme_minimal() + theme(legend.position = "none")
+
+# ----------------------------------------------------------------------------
+# GRÁFICO 3: Desemprego vs Log(População) (Fixando Analfabetismo)
+# ----------------------------------------------------------------------------
+grid3 <- expand.grid(
+  txdesemp = seq(min(df_transf$txdesemp), max(df_transf$txdesemp), length.out = 50),
+  log_popres = seq(min(df_transf$log_popres), max(df_transf$log_popres), length.out = 50),
+  txanalfa = med_analfa
+)
+grid3$prob <- predict(modelo_final, newdata = grid3, type = "response")
+
+p3 <- ggplot(grid3, aes(x = txdesemp, y = log_popres)) +
+  geom_tile(aes(fill = prob)) +
+  geom_contour(aes(z = prob), color = "white", breaks = 0.5, size=0.8) +
+  geom_point(data = df_transf, aes(color = y_bin), alpha = 0.3, size = 1.5) +
+  scale_fill_gradient2(low = "#2c7bb6", mid = "#ffffbf", high = "#d7191c", midpoint = 0.5, limits=c(0,1), name="Prob.\nPredita") +
+  scale_color_manual(values = c("black", "darkred"), name="Real") +
+  labs(title = "Desemprego vs População", subtitle = "Analfabetismo fixo na mediana") +
+  theme_minimal() + theme(legend.position = "right")
+
+# ----------------------------------------------------------------------------
+# Exibição Conjunta
+# ----------------------------------------------------------------------------
+# Organiza os 3 plots. O p3 fornece a legenda para todos.
+grid.arrange(p1, p2, p3, ncol = 3)
+```
+
+# Diagnóstico do Ajuste
+
+## Multicolinearidade (VIF)
+
+```{r multicolinearidade, message=FALSE, warning=FALSE}
+car::vif(modelo_final)
+```
+
+# Teste de Shapiro-Wilk
+```{r shapiro_wilk, message=FALSE, warning=FALSE}
+shapiro.test(residuals(modelo_final))
+```
+O GVIF, bem como o teste de Shapiro Wilk, confirmam que não há evidência de multicolinearidade entre as variáveis preditoras.
+
+# Resíduos
+```{r hnp, message=FALSE, warning=FALSE}
+
+hnp(modelo_final, resid.type = "deviance", how.many.out = TRUE, paint.out = TRUE,
+    main = "Envelope Simulado", xlab = "Percentil Teórico", ylab = "Resíduos Deviance")
+
+```
+
+```{r resíduos, message=FALSE, warning=FALSE}
+plot(residuals(modelo_final))
+```
