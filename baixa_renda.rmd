@@ -28,16 +28,24 @@ ___
 
 ## Leitura
 ```{r setup, message=FALSE, warning=FALSE, include=FALSE}
-library(ggplot2)
-library(dplyr)
-library(tidyverse)
-library(magrittr)
-library(stringr)
-library(ggeffects)
-library(gridExtra)
-library(car)
-library(hnp)
-library(plotly)
+libs <- c("ggplot2",
+          "dplyr",
+          "tidyverse",
+          "magrittr",
+          "stringr",
+          "ggeffects",
+          "gridExtra",
+          "car",
+          "hnp",
+          "plotly")
+
+for (lib in libs){
+  
+  if(!require(lib, character.only = TRUE)) install.packages(lib, repos = "https://cran-r.c3sl.ufpr.br/")
+  
+  library(lib, character.only = TRUE)
+}
+
 ```
 
 ```{r leitura, message=FALSE, warning=FALSE}
@@ -236,6 +244,16 @@ df_transf %>%
 
 Estamos construindo os modelos progressivamente. O objetivo é encontrar o equilíbrio entre simplicidade e capacidade explicativa.
 
+## Modelo Nulo
+O modelo nulo consiste na estimação apenas do $\beta_{0}$ (intercepto), sem incluir os efeitos das variáveis preditoras. Este modelo será ajustado apenas para comparação da deviance residual.
+
+```{r mod_nulo, message=FALSE, warning=FALSE}
+
+ajuste_nulo <- glm(y_bin ~ 1, data = df_transf, family = binomial(link = "logit"))
+
+summary(ajuste_nulo)
+```
+
 ## Modelo 1 - Todas as variáveis 
 
 Este é o modelo base (saturado), assumindo que todas as relações são lineares.
@@ -288,18 +306,19 @@ summary(ajuste_2)
 # Teste de Deviance (ANOVA) para comparar se o Modelo 2 é superior ao Modelo 1
 # H0: Os modelos são iguais (a complexidade extra não ajuda)
 # H1: O Modelo 2 é melhor
-anova(ajuste_1, ajuste_2, test = "Chisq")
+anova(ajuste_nulo, ajuste_1, ajuste_2, test = "Chisq")
 ```
 
 ### Diagnóstico do Modelo 2 (Termos Quadráticos)
 
 Os resultados obtidos a partir do ajuste do modelo com termos quadráticos indicam uma superioridade clara sobre o modelo linear simples (Modelo 1). A análise detalhada segue abaixo:
 
-1.  **Teste de Razão de Verossimilhança (ANOVA):**
-    A comparação formal entre os modelos resultou em um **p-valor de 0.0106** (Chi-quadrado). Como $p < 0.05$, rejeitamos a hipótese nula de que os modelos são equivalentes. Isso prova estatisticamente que a inclusão da curvatura para Desemprego e População adicionou poder explicativo real ao modelo, e não apenas ruído.
+1.  **Qualidade do Ajuste:**
+    * **AIC:** 96.534 (Base de comparação).
+    * **Deviance Residual:** Reduziu de 89.62 para 80.534, indicando que a inclusão da não linearidade na relação das variáveis preditoras ajuda a explicar melhor os dados, mesmo sendo penalizado pela complexidade adicional dos termos quadráticos..
 
-2.  **Critério de Akaike (AIC):**
-    O AIC reduziu de **101.62** (Modelo 1) para **96.53** (Modelo 2). Uma queda dessa magnitude confirma que o Modelo 2 é mais eficiente: ele explica melhor os dados mesmo sendo penalizado pela complexidade adicional dos termos quadráticos.
+2.  **Teste de Razão de Verossimilhança (ANOVA):**
+    A comparação formal entre os modelos resultou em um **p-valor de 0.0106** (Chi-quadrado). Como $p < 0.05$, rejeitamos a hipótese nula de que os modelos são equivalentes. Isso prova estatisticamente que a inclusão da curvatura para Desemprego e População adicionou poder explicativo real ao modelo, e não apenas ruído.
 
 3.  **Análise dos Coeficientes:**
     * **Não-Linearidade Confirmada:** Os termos quadráticos para Desemprego (`poly(txdesemp, 2)2`, p=0.027) e População (`poly(log_popres, 2)2`, p=0.027) foram estatisticamente significativos. Isso sugere que a relação dessas variáveis com a pobreza não é constante, variando conforme a magnitude dos indicadores (formato de curva).
@@ -327,8 +346,10 @@ modelo_step <- step(ajuste_2, direction = "both", trace = 1)
 summary(modelo_step)
 ```
 
-O modelo capta a não linearidade de log populção, porém também acrescenta a taxa de obtos ao nível de 5% de significancia, porém a mesma não seria incluida ao nível de 1% de significancia.
-Visando a simplicidade do modelo, a taxa de obtos será removida
+O modelo capta a não linearidade dignificativa de log populção e da taxa de desemprego, porém também acrescenta a taxa de obtos ao nível de 5% de significancia, porém a mesma não seria incluida ao nível de 1% de significancia.
+O $\beta_{obtos}$ foi estimado em -0.003, o que indica que a taxa de obtos tem um efeito negativo na probabilidade de alta taxa proporção de pobreza. Esse resultado calsa estranheza, pois indica que municípios mais violetos tendem a ter menores taxas de pobreza, contudo, a significância desta variável deve estar relacionada com o efeito de outros fatores, externos ao modelo, que parcialmente são representandos pela quantidade de obtos.
+
+Visando a simplicidade do modelo e a interpretabilidade dos resultados, a taxa de obtos será removida, sem grandes perdas ao modelo, visto que \delta(AIC) < 4\
 
 ```{r modelo_final, message=FALSE, warning=FALSE}
 
@@ -339,6 +360,9 @@ cat("----Summary do Modelo Final----")
 summary(modelo_final)
 cat("----Anova entre os Modelos----")
 anova(modelo_final,modelo_step, ajuste_2, test = "Chisq")
+
+cat("---- AIC ----")
+AIC(ajuste_nulo, ajuste_1, ajuste_2, modelo_step, modelo_final)
 ```
 
 
@@ -659,3 +683,5 @@ hnp(modelo_final, resid.type = "deviance", how.many.out = TRUE, paint.out = TRUE
 ```{r resíduos, message=FALSE, warning=FALSE}
 plot(residuals(modelo_final))
 ```
+
+## Outros testes
