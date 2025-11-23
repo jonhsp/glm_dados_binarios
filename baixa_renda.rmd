@@ -37,7 +37,10 @@ libs <- c("ggplot2",
           "gridExtra",
           "car",
           "hnp",
-          "plotly")
+          "plotly",
+          "rgl",
+          "magick",
+          "viridis")
 
 for (lib in libs){
   
@@ -86,7 +89,7 @@ summary(df)
 <br><br>
 
 # Distribuição das Variáveis
-```{r distribuicao, message=FALSE, warning=FALSE}
+```{r distribuicao, message=FALSE, warning=FALSE, fig.align='center'}
 df %>%
   # Seleciona apenas colunas numéricas
   select(where(is.numeric)) %>%
@@ -129,7 +132,7 @@ df_transf <- df %>%
 # Distribuição das Variáveis Transformadas
 
 ## Visualização individual
-```{r distribuicao_transf, message=FALSE, warning=FALSE}
+```{r distribuicao_transf, message=FALSE, warning=FALSE, fig.align='center'}
 df_transf %>%
   # Seleciona apenas colunas numéricas
   select(where(is.numeric)) %>%
@@ -151,7 +154,7 @@ df_transf %>%
 <br><br>
 
 ## Visualização por grupo (Baixa vs Alta Proporção)
-```{r distribuicao_transf_por_grupo, message=FALSE, warning=FALSE}
+```{r distribuicao_transf_por_grupo, message=FALSE, warning=FALSE, fig.align='center'}
 # Visualização das variáveis numéricas por nível da variável resposta
 
 df_transf %>%
@@ -187,7 +190,7 @@ df_transf %>%
 ```
 <br><br>
 
-```{r distribuicao_transf_por_grupo_boxplot, message=FALSE, warning=FALSE}
+```{r distribuicao_transf_por_grupo_boxplot, message=FALSE, warning=FALSE, fig.align='center'}
 # Visualização das variáveis numéricas por nível da variável resposta (Boxplot)
 
 df_transf %>%
@@ -218,7 +221,7 @@ df_transf %>%
 <br><br>
 
 ## Relação entre Analfabetismo e Desemprego
-```{r relacao_txanalfa_txdesemp, message=FALSE, warning=FALSE}
+```{r relacao_txanalfa_txdesemp, message=FALSE, warning=FALSE, fig.align='center'}
 # Gráfico de Dispersão: Analfabetismo vs Desemprego por Grupo
 
 df_transf %>%
@@ -346,28 +349,58 @@ modelo_step <- step(ajuste_2, direction = "both", trace = 1)
 summary(modelo_step)
 ```
 
-O modelo capta a não linearidade dignificativa de log populção e da taxa de desemprego, porém também acrescenta a taxa de obtos ao nível de 5% de significancia, porém a mesma não seria incluida ao nível de 1% de significancia.
-O $\beta_{obtos}$ foi estimado em -0.003, o que indica que a taxa de obtos tem um efeito negativo na probabilidade de alta taxa proporção de pobreza. Esse resultado calsa estranheza, pois indica que municípios mais violetos tendem a ter menores taxas de pobreza, contudo, a significância desta variável deve estar relacionada com o efeito de outros fatores, externos ao modelo, que parcialmente são representandos pela quantidade de obtos.
+### Refinamento e Seleção Final
 
-Visando a simplicidade do modelo e a interpretabilidade dos resultados, a taxa de obtos será removida, sem grandes perdas ao modelo, visto que \delta(AIC) < 4\
+A análise do modelo *stepwise* indicou que a taxa de óbitos (`obt_100k`) possui significância estatística marginal ($p \approx 0.015$) e contribui para uma redução da deviance. O coeficiente estimado ($\beta \approx -0.003$) sugere um efeito negativo, indicando que municípios com maiores taxas de óbitos por causas externas tenderiam a ter menor probabilidade de alta pobreza.
 
-```{r modelo_final, message=FALSE, warning=FALSE}
+Entretanto, levando em consideração a ausência de interpretação prática da redução da violência com o aumento da pobreza, esse resultado pode ser interpretado como o efeito captado de variáveis externas ao modelo. Além disso, a variação no Critério de Informação de Akaike (AIC) entre os modelos é pequena ($\Delta AIC < 4$), o que, segundo a literatura, sugere equivalência empírica entre os modelos.
 
+Visando a **parcimônia** e a interpretabilidade, optou-se pela remoção desta variável, definindo-se o modelo final com foco nos determinantes socioeconômicos diretos (Educação e Trabalho) e na estrutura demográfica (População).
+
+```{r modelo_final}
+# Atualizando o modelo para remover a variável de óbitos (obt_100k)
 modelo_final <- update(modelo_step, . ~ . - obt_100k)
 
-# Exibe o resumo do modelo vencedor
-cat("----Summary do Modelo Final----")
+# Exibindo o sumário do modelo vencedor
 summary(modelo_final)
-cat("----Anova entre os Modelos----")
-anova(modelo_final,modelo_step, ajuste_2, test = "Chisq")
-
-cat("---- AIC ----")
-AIC(ajuste_nulo, ajuste_1, ajuste_2, modelo_step, modelo_final)
 ```
 
+# Interpretação dos resultados
 
-## Interpretação dos Efeitos (Odds Ratios)
-A tabela abaixo apresenta a Razão de Chances (Odds Ratios) para as variáveis do modelo final.
+A partir do ajuste final, podemos formalizar a relação entre as variáveis preditoras e a probabilidade de um município apresentar alta proporção de baixa renda.
+<br><br>
+
+## Especificação da Equação Estimada
+
+Abaixo, apresentamos a equação do preditor linear ($\eta$) com os coeficientes estimados substituídos. Esta equação descreve o **logaritmo da chance** (*log-odds*):
+
+$$
+\begin{aligned}
+\ln \left( \frac{\hat{p}}{1 - \hat{p}} \right) = & `r round(coef(modelo_final)[1], 3)` \\
+& + `r round(coef(modelo_final)[2], 3)` \cdot \text{Analfa} \\
+& + `r round(coef(modelo_final)[3], 3)` \cdot \text{Desemp}^1 + `r round(coef(modelo_final)[4], 3)` \cdot \text{Desemp}^2 \\
+& + `r round(coef(modelo_final)[5], 3)` \cdot \text{log(Pop)}^1 `r round(coef(modelo_final)[6], 3)` \cdot \text{log(Pop)}^2
+\end{aligned}
+$$
+<small>*Nota: Os termos com sobrescritos 1 e 2 referem-se aos componentes linear e quadrático dos polinômios ortogonais.*</small>
+
+## Análise dos Efeitos
+
+1.  **Taxa de Analfabetismo:**
+    * Apresenta uma relação linear positiva ($\hat{\beta} \approx `r round(coef(modelo_final)[2], 2)`$).
+    * **Interpretação:** É o indicador mais consistente. O aumento na taxa de analfabetismo eleva diretamente a chance de o município pertencer ao grupo de alta pobreza.
+
+2.  **Taxa de Desemprego (Não-Linearidade):**
+    * A significância dos termos linear e quadrático confirma que o impacto do desemprego não é constante.
+    * **Interpretação:** A relação sugere um comportamento de aceleração (curva em "J"). Em níveis baixos de desemprego, o impacto na pobreza é moderado, mas à medida que a taxa cresce, a probabilidade de alta pobreza aumenta de forma mais acentuada.
+
+3.  **Tamanho da População (Escala):**
+    * O termo quadrático negativo ($\hat{\beta} \approx `r round(coef(modelo_final)[6], 2)`$) indica uma curva côncava ("U" invertido).
+    * **Interpretação:** Isso sugere que a dinâmica da pobreza muda conforme a escala do município, onde municípios de porte médio podem apresentar riscos distintos comparados a pequenos municípios ou grandes centros urbanos, capturando efeitos de aglomeração ou estrutura social.
+
+## Razão de Chances (Odds Ratios)
+
+Para quantificar a magnitude desses efeitos, apresentamos as estimativas na escala da Razão de Chances (OR).
 
 ```{r or, message=FALSE, warning=FALSE}
 # Extração dos coeficientes e cálculo do OR (exp(beta))
@@ -376,11 +409,17 @@ tabela_or <- exp(cbind(OR = coef(modelo_final), confint(modelo_final)))
 # Exibição formatada
 knitr::kable(tabela_or, digits = 3, caption = "Razão de Chances (Odds Ratios) e IC 95%")
 ```
+<br><br>
+
+
+
 # Visualizações
+
+<br><br>
 
 ## Visualização ( Variáveis fixadas na média)
 
-```{r visualizacao_modelo_final_media, message=FALSE, warning=FALSE}
+```{r visualizacao_modelo_final_media, message=FALSE, warning=FALSE, fig.width=15, fig.height=6, fig.align='center'}
 
 # 1. Efeito do Analfabetismo (Linear)
 # Mostra a probabilidade predita de Alta Pobreza conforme a Taxa de Analfabetismo aumenta
@@ -417,17 +456,16 @@ plot_pop <- ggpredict(modelo_final, terms = "log_popres [all]") %>%
 
 # Exibir os gráficos juntos usando gridExtra
 # Organiza em 2 colunas: Analfabetismo e Desemprego na linha 1, População centralizada na linha 2
-grid.arrange(plot_analfa, plot_desemp, plot_pop, ncol = 3, 
-             layout_matrix = rbind(c(1, 2), c(3, 3)))
+grid.arrange(plot_analfa, plot_desemp, plot_pop, ncol = 3)
 
 
 
 ```
-
+<br><br>
 
 ## Visualização ( Variáveis fixadas na moda)
 
-```{r visualizacao_modelo_final_moda, message=FALSE, warning=FALSE}
+```{r visualizacao_modelo_final_moda, message=FALSE, warning=FALSE,fig.width=15, fig.height=6, fig.align='center'}
 
 # 1. Efeito do Analfabetismo (Linear)
 # Mostra a probabilidade predita de Alta Pobreza conforme a Taxa de Analfabetismo aumenta
@@ -464,131 +502,158 @@ plot_pop <- ggpredict(modelo_final, terms = "log_popres [all]", typical = 'mode'
 
 # Exibir os gráficos juntos usando gridExtra
 # Organiza em 2 colunas: Analfabetismo e Desemprego na linha 1, População centralizada na linha 2
-grid.arrange(plot_analfa, plot_desemp, plot_pop, ncol = 3, 
-             layout_matrix = rbind(c(1, 2), c(3, 3)))
+grid.arrange(plot_analfa, plot_desemp, plot_pop, ncol = 3)
 
 
 
 ```
+<br><br>
 
 ## Visualização 3D das Probabilidades
-```{r visualizacao_3d, message=FALSE, warning=FALSE}
 
-# 1. Preparar os dados com as predições
-# Usamos os dados reais para ver onde os municípios se posicionam no espaço 3D
-df_3d <- df_transf %>%
-  mutate(
-    prob_predita = predict(modelo_final, type = "response"),
-    # Criamos um texto formatado para quando passar o mouse
-    hover_text = paste(
-      "<b>Município:</b>", municipio,
-      "<br><b>Analfabetismo:</b>", txanalfa, "%",
-      "<br><b>Desemprego:</b>", txdesemp, "%",
-      "<br><b>População:</b>", exp(log_popres) %>% round(0), # Revertendo o log para ler fácil
-      "<br><b>Prob. Alta Pobreza:</b>", scales::percent(prob_predita, accuracy = 0.1)
-    )
-  )
 
-# 2. Gerar o Gráfico de Dispersão 3D
-plot_ly(data = df_3d, 
-        x = ~txanalfa, 
-        y = ~txdesemp, 
-        z = ~log_popres,
-        color = ~prob_predita, 
-        colors = c("#440154", "#21908C", "#FDE725"), # Escala Viridis (escura -> clara)
-        type = "scatter3d", 
-        mode = "markers",
-        marker = list(
-          size = 6,              # Tamanho das bolinhas
-          opacity = 0.8,         # Transparência para ver pontos atrás
-          line = list(width = 0) # Remove borda para ficar mais limpo
-        ),
-        text = ~hover_text,
-        hoverinfo = "text"
-) %>%
-  layout(
-    title = "Espaço Tridimensional dos Preditores<br><sub>Cor = Probabilidade de Alta Pobreza</sub>",
-    scene = list(
-      xaxis = list(title = "Analfabetismo (%)"),
-      yaxis = list(title = "Desemprego (%)"),
-      zaxis = list(title = "Log(População)"),
-      camera = list(eye = list(x = 1.5, y = 1.5, z = 1.2)) # Posição inicial da câmera
-    )
-  )
+A animação abaixo apresenta o espaço tridimensional das variáveis preditoras, onde a cor dos pontos indica a probabilidade estimada de alta pobreza.
+
+```{r visualizacao_3d_gif, message=FALSE, warning=FALSE, eval=FALSE,cache=TRUE}
+
+
+# 1. PREPARAÇÃO
+# Limpa dispositivo gráfico
+while (rgl.cur() > 0) { rgl.close() }
+
+# Cores baseadas na probabilidade
+probs <- predict(modelo_final, type = "response")
+paleta <- viridis(100, option = "D") 
+indices_cor <- cut(probs, breaks = 100, labels = FALSE)
+cores_probs <- paleta[indices_cor]
+
+# 2. RENDERIZAÇÃO
+open3d(windowRect = c(0, 0, 800, 800))
+
+# Adiciona APENAS os Pontos
+plot3d(x = df_transf$txanalfa, 
+       y = df_transf$txdesemp, 
+       z = df_transf$log_popres, 
+       col = cores_probs, 
+       type = "s", 
+       radius = 0.18,
+       xlab = "", ylab = "", zlab = "", 
+       box = FALSE)
+
+# Adiciona Eixos e Caixa (Correção do erro de renderização)
+decorate3d(
+  xlab = "Analfabetismo", 
+  ylab = "Desemprego", 
+  zlab = "Log(Populacao)", # Sem acento
+  box = TRUE, 
+  axes = TRUE,
+  aspect = TRUE
+)
+
+# 3. GERAR GIF
+movie3d(spin3d(axis = c(0, 0, 1), rpm = 7), 
+        duration = 6, 
+        dir = "baixa_renda_files\\figure_animeted", 
+        movie = "visualizacao_probabilidades_3d", 
+        type = "gif", 
+        clean = TRUE)
+
+legend3d("topright", 
+         legend = c("Muito Alta (>80%)", "Alta (60%)", "Média (40%)", "Baixa (20%)", "Muito Baixa (<10%)"), 
+         pch = 16,           # Símbolo (Bolinha preenchida)
+         col = c(paleta[90], paleta[70], paleta[50], paleta[30], paleta[10]), # Cores correspondentes
+         cex = 1.0,          # Tamanho do texto
+         inset = c(0.02)     # Margem em relação à borda
+)
+
+close3d()
 
 ```
+
+```{r exibir_gif_prob, echo=FALSE, fig.align='center', out.width='800px'}
+# Este chunk serve apenas para incorporar o GIF no HTML final de forma segura
+knitr::include_graphics("baixa_renda_files\\figure_animeted\\visualizacao_probabilidades_3d.gif")
+```
+<br><br>
 
 ## Visualização 3D de Acertos e Erros
 
-```{r visualizacao_3d_acertos_erro, message=FALSE, warning=FALSE}
+Nesta animação, os pontos são coloridos conforme o desempenho do modelo. Pontos **Azuis** indicam classificações corretas, enquanto pontos **Vermelhos** indicam onde o modelo errou.
 
-# 1. Preparar os dados de classificação
-df_classificacao <- df_transf %>%
+```{r visualizacao_erros_gif, message=FALSE, warning=FALSE, eval=FALSE, cache=TRUE}
+
+# 1. PREPARAÇÃO
+# Define o caminho exato que você usou
+output_dir <- "baixa_renda_files/figure_animeted"
+if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
+
+# Limpa dispositivo gráfico
+while (rgl.cur() > 0) { rgl.close() }
+
+# Preparar dados de Classificação
+df_class <- df_transf %>%
   mutate(
-    # Probabilidade predita pelo modelo
     prob = predict(modelo_final, type = "response"),
-    
-    # Classificação baseada no limiar de 50% (0.5)
-    # Se prob > 0.5 -> Classifica como "Alta Proporção" (nível 2 do fator)
-    # Se prob <= 0.5 -> Classifica como "Baixa Proporção" (nível 1 do fator)
-    classe_predita = ifelse(prob > 0.5, "Alta Proporção", "Baixa Proporção"),
-    
-    # Verificar se acertou ou errou
-    # Como y_bin é fator, convertemos para caracter para comparar
-    resultado = ifelse(as.character(y_bin) == classe_predita, "Acerto", "Erro"),
-    
-    # Detalhe do erro (Falso Positivo vs Falso Negativo) para o tooltip
-    tipo_erro = case_when(
-      resultado == "Acerto" ~ "Classificação Correta",
-      classe_predita == "Alta Proporção" ~ "Falso Positivo (Predisse Alta, mas é Baixa)",
-      TRUE ~ "Falso Negativo (Predisse Baixa, mas é Alta)"
-    ),
-    
-    # Texto para o mouse
-    hover_text = paste(
-      "<b>Município:</b>", municipio,
-      "<br><b>Analfabetismo:</b>", txanalfa, "%",
-      "<br><b>Desemprego:</b>", txdesemp, "%",
-      "<br><b>População:</b>", exp(log_popres) %>% round(0), # Revertendo o log para ler fácil
-      "<br><b>Prob. Alta Pobreza:</b>", scales::percent(prob, accuracy = 0.1)
-    )
+    classe_pred = ifelse(prob > 0.5, "Alta Proporção", "Baixa Proporção"),
+    y_bin_char = as.character(y_bin),
+    resultado = ifelse(y_bin_char == classe_pred, "Acerto", "Erro")
   )
 
-# 2. Gerar o Gráfico 3D
-plot_ly(data = df_classificacao, 
-        x = ~txanalfa, 
-        y = ~txdesemp, 
-        z = ~log_popres,
-        color = ~resultado, 
-        colors = c("#1f77b4", "#d62728"), # Azul para Acerto, Vermelho para Erro
-        symbol = ~resultado,
-        symbols = c("circle", "circle"), # Bolinha para Acerto, X para Erro
-        type = "scatter3d", 
-        mode = "markers",
-        marker = list(
-          size = 6,
-          opacity = 0.8,
-          line = list(width = 1, color = "black") # Borda para destacar
-        ),
-        text = ~hover_text,
-        hoverinfo = "text"
-) %>%
-  layout(
-    title = "Diagnóstico de Classificação 3D<br><sub>Pontos vermelhos indicam onde o modelo errou</sub>",
-    scene = list(
-      xaxis = list(title = "Analfabetismo (%)"),
-      yaxis = list(title = "Desemprego (%)"),
-      zaxis = list(title = "Log(População)")
-    ),
-    legend = list(title = list(text = "Resultado"))
-  )
+# Definir Cores: Azul para Acerto, Vermelho para Erro
+cores_resultado <- ifelse(df_class$resultado == "Acerto", "#1f77b4", "#d62728")
 
+# 2. RENDERIZAÇÃO
+open3d(windowRect = c(0, 0, 800, 800))
+
+# Plotar pontos (Mesmo radius e logica do anterior)
+plot3d(x = df_class$txanalfa, 
+       y = df_class$txdesemp, 
+       z = df_class$log_popres, 
+       col = cores_resultado, 
+       type = "s", 
+       radius = 0.18,
+       xlab = "", ylab = "", zlab = "", 
+       box = FALSE)
+
+# Adicionar Eixos e Caixa
+decorate3d(
+  xlab = "Analfabetismo", 
+  ylab = "Desemprego", 
+  zlab = "Log(Populacao)", 
+  box = TRUE, 
+  axes = TRUE, 
+  aspect = TRUE
+)
+
+# Adicionar Legenda (ANTES de gravar o filme para aparecer no GIF)
+legend3d("topright", 
+         legend = c("Acerto", "Erro"), 
+         pch = 16, 
+         col = c("#1f77b4", "#d62728"), 
+         cex = 1.0, 
+         inset = c(0.02))
+
+# 3. GERAR GIF
+movie3d(spin3d(axis = c(0, 0, 1), rpm = 7), 
+        duration = 6, 
+        dir = output_dir, 
+        movie = "visualizacao_erros_3d", 
+        type = "gif", 
+        clean = TRUE)
+
+close3d()
 
 ```
 
+```{r exibir_gif_erros, echo=FALSE, fig.align='center', out.width='800px'}
+# Este chunk serve apenas para incorporar o GIF no HTML final de forma segura
+knitr::include_graphics("baixa_renda_files\\figure_animeted\\visualizacao_erros_3d.gif")
+```
+<br><br>
+
 ## Visualização da probabilidade conjunta 
 
-```{r visualizacao_probabilidade_conjunta, message=FALSE, warning=FALSE, fig.width=15, fig.height=6}
+```{r visualizacao_probabilidade_conjunta, message=FALSE, warning=FALSE, fig.width=15, fig.height=6, fig.align='center'}
 # Definindo as medianas para fixar as variáveis de controle
 med_analfa <- median(df_transf$txanalfa)
 med_desemp <- median(df_transf$txdesemp)
@@ -657,31 +722,56 @@ p3 <- ggplot(grid3, aes(x = txdesemp, y = log_popres)) +
 # Organiza os 3 plots. O p3 fornece a legenda para todos.
 grid.arrange(p1, p2, p3, ncol = 3)
 ```
+<br><br>
 
 # Diagnóstico do Ajuste
+
+<br><br>
 
 ## Multicolinearidade (VIF)
 
 ```{r multicolinearidade, message=FALSE, warning=FALSE}
 car::vif(modelo_final)
 ```
+Os GVIF reescalado permaneceram abaixo de 1.2 para todas as variáveis preditoras. Isso confirma a ausência de multicolinearidade prejudicial, indicando que os termos polinomiais e as taxas socioeconômicas trazem informações independentes para o modelo.
 
-# Teste de Shapiro-Wilk
-```{r shapiro_wilk, message=FALSE, warning=FALSE}
-shapiro.test(residuals(modelo_final))
-```
-O GVIF, bem como o teste de Shapiro Wilk, confirmam que não há evidência de multicolinearidade entre as variáveis preditoras.
 
-# Resíduos
-```{r hnp, message=FALSE, warning=FALSE}
+##  Resíduos e Distância de Cook
 
+```{r residuos, message=FALSE, warning=FALSE, fig.align='center', fig.width=15, fig.height=8}
+
+# Configura a tela para 4 gráficos (2x2)
+par(mfrow = c(2, 2))
+
+# hnp
 hnp(modelo_final, resid.type = "deviance", how.many.out = TRUE, paint.out = TRUE,
     main = "Envelope Simulado", xlab = "Percentil Teórico", ylab = "Resíduos Deviance")
 
-```
+# Distância de Cook
+plot(cooks.distance(modelo_final), type = "h",
+     main = "Distância de Cook",
+     ylab = "Distância de Cook",
+     ylim = c(0,0.6))
+abline(h = 0.5, lty = 2, col = "red")
 
-```{r resíduos, message=FALSE, warning=FALSE}
-plot(residuals(modelo_final))
-```
+# Residuos deviance
+plot(residuals(modelo_final, type = "deviance"),
+      main = "Resíduos Deviance",
+      ylab = "Resíduos Deviance",
+      ylim = c(-4, 4))
+abline(h = c(-2, 2), lty = 2, col = "red")
 
-## Outros testes
+# Residuos pearson
+plot(residuals(modelo_final, type = "pearson"),
+      main = "Resíduos Pearson",
+      ylab = "Resíduos Pearson",
+      ylim = c(-4, 4))
+abline(h = c(-2, 2), lty = 2, col = "red")
+
+# Retorna a configuração da tela para o padrão (1 gráfico por vez)
+par(mfrow = c(1, 1))
+```
+- **Resíduos:** Tanto os resíduos Deviance quanto os de Pearson situam-se majoritariamente dentro do intervalo de confiança aceitável de $[-2, +2]$. Observam-se poucos pontos excedendo esse limite, e nenhum ultrapassando o valor crítico de $\pm 3$, o que indica ausência de outliers severos de ajuste.
+- **Envelope Simulado:** O gráfico Half-Normal Plot confirma a adequação do componente aleatório. A totalidade dos pontos permanece dentro das bandas de envelope de 95%, validando a escolha da distribuição Binomial.
+- **Influência:** A análise da Distância de Cook aponta que todos os valores permanecem muito abaixo de $0.5$, indicando que nenhum município exerce, isoladamente, influência capaz de comprometer a estabilidade dos coeficientes do modelo.
+
